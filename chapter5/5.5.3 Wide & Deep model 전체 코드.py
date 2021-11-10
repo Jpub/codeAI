@@ -1,17 +1,18 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[ ]:
 
 
 import tensorflow as tf
 
 class WideAndDeepModel:
     def __init__(self, wide_length, deep_length, deep_last_layer_len, softmax_label):
+        #먼저 입력 부분을 정의해준다. wide 부분과 deep 부분 그리고 레이블 데이터인 y까지 포함한다.
         self.input_wide_part = tf.placeholder(tf.float32, shape=[None, wide_length], name='input_wide_part')
         self.input_deep_part = tf.placeholder(tf.float32, shape=[None, deep_length], name='input_deep_part')
         self.input_y = tf.placeholder(tf.float32, shape=[None, softmax_label], name='input_y')
-
+        
+        # deep 부분의 네트워크 구조를 정의
         with tf.name_scope('deep_part'):
             w_x1 = tf.Variable(tf.random_normal([wide_length, 64], stddev=0.03), name='w_x1')
             b_x1 = tf.Variable(tf.random_normal([64]), name='b_x1')
@@ -22,7 +23,8 @@ class WideAndDeepModel:
             z1 = tf.add(tf.matmul(self.input_wide_part, w_x1), b_x1)
             a1 = tf.nn.relu(z1)
             self.deep_logits = tf.add(tf.matmul(a1, w_x2), b_x2)
-
+        
+        # wide 부분의 네트워크 구조를 정의
         with tf.name_scope('wide_part'):
             weights = tf.Variable(tf.truncated_normal([deep_last_layer_len + wide_length, softmax_label]))
             biases = tf.Variable(tf.zeros([softmax_label]))
@@ -32,17 +34,16 @@ class WideAndDeepModel:
             self.wide_and_deep_logits = tf.add(tf.matmul(self.wide_and_deep, weights), biases)
             self.predictions = tf.argmax(self.wide_and_deep_logits, 1, name= "prediction")
 
-
+        # 손실함수 정의
         with tf.name_scope('loss'):
             losses = tf.nn.softmax_cross_entropy_with_logits(logits=self.wide_and_deep_logits, labels=self.input_y)
             self.loss = tf.reduce_mean(losses)
-
+        #정확도 정의
         with tf.name_scope("accuracy"):
             correct_predictions = tf.equal(self.predictions, tf.argmax(self.input_y, axis=1))
             self.accuracy = tf.reduce_mean(tf.cast(correct_predictions, tf.float32), name="accuracy")
 
 
-# In[ ]:
 
 
 # 데이터와 레이블 읽어오기
@@ -59,23 +60,85 @@ def load_data_and_labels(path):
     with open(path, 'r') as f:
         rdr = csv.reader(f, delimiter=',', quotechar='"')
         for row in rdr:
+            
+            emb_val = row[4].split(';')
+            emb_val_f = [float(i) for i in emb_val]
+            
+            cate_emb = row[5].split(';')
+            cate_emb_val_f = [float(i) for i in cate_emb]
+            
+            total_q.append(int(row[3]))
+            data.append(emb_val_f + cate_emb_val_f)
             y.append(float(row[1]))
 
 
-    # data = np.asarray(data)
+    data = np.asarray(data)
     total_q = np.asarray(total_q)
     y = np.asarray(y)
-    return data, y
+    
+    bins = pd.qcut(y, 50, retbins=True)
+    
+    # 레이블을 수치 구간으로 변환
+    def convert_label_to_interval(y):
+        gmv_bins = []
+        for i in range(len(y)):
+            interval = int(y[i] / 20000)
+            if interval < 1000:
+                gmv_bins.append(interval)
+            elif inerval >= 1000:
+                gmb_bins.append(1000)
+                
+        gmv_bins = np.asarray(gmv_bins)
+        return gmv_bins
+    
+    y = convert_label_to_interval(y)
+    
+    # 레이블을 one-hot encoding으로 변환
+    
+    def dense_to_one_hot(labels_dense, num_classes):
+        num_labels = labels_dense.shape[0]
+        index_offset = np.arange(num_labels) * num_classes
+        label_one_hot = np.zeros((num_labels, num_classes))
+        labels_one_hot.flat[index_offset + labels_dense.ravel()] = 1
+        return lables_one_hot
+    
+    labels_count = 1001
+    labels = dense_to_one_hot(y, labels_count)
+    labels = labels.astype(np.uint8)
+    def dense_to_one_hot2(labels_dense, num_classes):
+        num_labels = labels_dense.shape[0]
+        index_offset = np.arange(num_labels) * num_classes
+        labels_one_hot = np.zeros((num_labels, num_classes))
+        labels_one_hot.flat[index_offset + labels_dense.ravel() - 1] = 1
+        return labels_one_hot
+    total_q_classes = np.unique(total_q).shape[0]
+    total_q = dense_to_one_hot2(total_q, total_q_classes)
+    
+    data = np.concatenate((data,total_q), axis=1)
+    
+    return data, labels
 
 
-data, y = load_data_and_labels('../data/zutao2.csv')
+def batch_iter(data, batch_size, num_epochs, shuffle=True):
+    data = np.array(data)
+    data_size = len(data)
+    num_batches_per_epoch = int((len(data) - 1) / batch_size) + 1
+    for epoch in range(num_epochs):
+        #각 에포크마다 데이터 셔플링
+        if shuffle:
+            shuffle_indices = np.random.permutation(np.arange(data_size))
+            shuffle_data = data[shuffle_indices]
+        else:
+            shuffle_data = data
+        for batch_num in range(num_batches_per_epoch):
+            start_index = batch_num * batch_size
+            end_index = min((batch_num + 1) * batch_size, data, size)
+            yield shuffled_data[start_index:end_index]
+            
 
-bins = pd.qcut(y, 50, retbins=True)
-print(bins[0])
 
-
-# In[ ]:
-
+if __name__ == "__main__":
+    load_data_and_labels("data/train.csv")
 
 import tensorflow as tf
 import data_helpers
@@ -86,19 +149,19 @@ from WideandDeepModel import WideAndDeepModel
 
 # Data loading params
 tf.flags.DEFINE_string("train_dir", "../data/cvr_train_data.csv", "Path of train data")
-tf.flags.DEFINE_integer("wide_length", 261, "Path of train data")
-tf.flags.DEFINE_integer("deep_length", 261, "Path of train data")
-tf.flags.DEFINE_integer("deep_last_layer_len", 32, "Path of train data")
-tf.flags.DEFINE_integer("softmax_label", 1, "Path of train data")
+tf.flags.DEFINE_integer("wide_length", 133, "Path of train data")
+tf.flags.DEFINE_integer("deep_length", 133, "Path of train data")
+tf.flags.DEFINE_integer("deep_last_layer_len", 128, "Path of train data")
+tf.flags.DEFINE_integer("softmax_label", 1001, "Path of train data")
 
 
 # Training parameters
 tf.flags.DEFINE_integer("batch_size", 32, "Batch Size")
-tf.flags.DEFINE_integer("num_epochs", 30, "Number of training epochs")
-tf.flags.DEFINE_integer("display_every", 50, "Number of iterations to display training info.")
+tf.flags.DEFINE_integer("num_epochs", 5, "Number of training epochs")
+tf.flags.DEFINE_integer("display_every", 100, "Number of iterations to display training info.")
 tf.flags.DEFINE_float("learning_rate", 1e-3, "Which learning rate to start with.")
 tf.flags.DEFINE_integer("num_checkpoints", 5, "Number of checkpoints to store")
-tf.flags.DEFINE_integer("checkpoint_every", 200, "Save model after this many steps")
+tf.flags.DEFINE_integer("checkpoint_every", 500, "Save model after this many steps")
 
 
 
@@ -148,13 +211,13 @@ def train():
 
             saver = tf.train.Saver(tf.global_variables(), max_to_keep=FLAGS.num_checkpoints)
 
-            # Initialize all variables
+            # 변수 초기화
             sess.run(tf.global_variables_initializer())
 
-            # Generate batches
+            # 새로운 훈련을 할때 마다 batch와 size 생성
             batches = data_helpers.batch_iter(
                 list(zip(x, y)), FLAGS.batch_size, FLAGS.num_epochs)
-            # Training loop. For each batch...
+            
             for batch in batches:
                 x_batch, y_batch = zip(*batch)
 
@@ -171,7 +234,7 @@ def train():
                     time_str = datetime.datetime.now().isoformat()
                     print("{}: step {}, loss {:g}, auc {:G}".format(time_str, step, loss, accuracy))
 
-                # Model checkpoint
+                # checkpoint 저장
                 if step % FLAGS.checkpoint_every == 0:
                     path = saver.save(sess, checkpoint_prefix, global_step=step)
                     print("Saved model checkpoint to {}\n".format(path))
